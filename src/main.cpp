@@ -111,6 +111,7 @@ static void print_usage()
     fprintf(stderr, "  -o output-path       output image path (jpg/png/webp) or directory\n");
     fprintf(stderr, "  -n num-frame         target frame count (default=N*2)\n");
     fprintf(stderr, "  -s time-step         time step (0~1, default=0.5)\n");
+    fprintf(stderr, "  -M manifest-path     json array of N.a entries for batch interpolation with -i/-o (rife-v4 only)\n");
     fprintf(stderr, "  -m model-path        rife model path (default=rife-v2.3)\n");
     fprintf(stderr, "  -g gpu-id            gpu device to use (-1=cpu, default=auto) can be 0,1,2 for multi-gpu\n");
     fprintf(stderr, "  -j load:proc:save    thread count for load/proc/save (default=1:2:2) can be 1:2,2,2:2 for multi-gpu\n");
@@ -226,6 +227,58 @@ static int encode_image(const path_t& imagepath, const ncnn::Mat& image)
     }
 
     return success ? 0 : -1;
+}
+
+static int parse_manifest(const path_t& manifestpath, std::vector<float>& values)
+{
+    values.clear();
+
+#if _WIN32
+    FILE* fp = _wfopen(manifestpath.c_str(), L"rb");
+#else
+    FILE* fp = fopen(manifestpath.c_str(), "rb");
+#endif
+    if (!fp)
+    {
+#if _WIN32
+        fwprintf(stderr, L"open manifest %ls failed\n", manifestpath.c_str());
+#else
+        fprintf(stderr, "open manifest %s failed\n", manifestpath.c_str());
+#endif
+        return -1;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long length = ftell(fp);
+    rewind(fp);
+
+    std::vector<char> buf(length + 1);
+    if (length > 0)
+        fread(buf.data(), 1, length, fp);
+    buf[length] = '\0';
+    fclose(fp);
+
+    const char* p = buf.data();
+    while (*p)
+    {
+        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' || *p == ',' || *p == '[' || *p == ']')
+            p++;
+
+        if (*p == '\0')
+            break;
+
+        char* end = NULL;
+        double v = strtod(p, &end);
+        if (end == p)
+        {
+            fprintf(stderr, "manifest parse error near '%c'\n", *p);
+            return -1;
+        }
+        values.push_back((float)v);
+        p = end;
+    }
+
+    return 0;
 }
 
 class Task
@@ -446,6 +499,7 @@ int main(int argc, char** argv)
     path_t input1path;
     path_t inputpath;
     path_t outputpath;
+    path_t manifestpath;
     int numframe = 0;
     float timestep = 0.5f;
     path_t model = PATHSTR("rife-v2.3");
@@ -462,7 +516,7 @@ int main(int argc, char** argv)
 #if _WIN32
     setlocale(LC_ALL, "");
     wchar_t opt;
-    while ((opt = getopt(argc, argv, L"0:1:i:o:n:s:m:g:j:f:vxzuh")) != (wchar_t)-1)
+    while ((opt = getopt(argc, argv, L"0:1:i:o:n:s:M:m:g:j:f:vxzuh")) != (wchar_t)-1)
     {
         switch (opt)
         {
@@ -483,6 +537,9 @@ int main(int argc, char** argv)
             break;
         case L's':
             timestep = _wtof(optarg);
+            break;
+        case L'M':
+            manifestpath = optarg;
             break;
         case L'm':
             model = optarg;
@@ -517,7 +574,7 @@ int main(int argc, char** argv)
     }
 #else // _WIN32
     int opt;
-    while ((opt = getopt(argc, argv, "0:1:i:o:n:s:m:g:j:f:vxzuh")) != -1)
+    while ((opt = getopt(argc, argv, "0:1:i:o:n:s:M:m:g:j:f:vxzuh")) != -1)
     {
         switch (opt)
         {
@@ -538,6 +595,9 @@ int main(int argc, char** argv)
             break;
         case 's':
             timestep = atof(optarg);
+            break;
+        case 'M':
+            manifestpath = optarg;
             break;
         case 'm':
             model = optarg;
@@ -575,6 +635,12 @@ int main(int argc, char** argv)
     if (((input0path.empty() || input1path.empty()) && inputpath.empty()) || outputpath.empty())
     {
         print_usage();
+        return -1;
+    }
+
+    if (!manifestpath.empty() && inputpath.empty())
+    {
+        fprintf(stderr, "-M manifest requires -i input directory\n");
         return -1;
     }
 
@@ -688,6 +754,12 @@ int main(int argc, char** argv)
         return -1;
     }
 
+    if (!rife_v4 && !manifestpath.empty())
+    {
+        fprintf(stderr, "only rife-v4 model supports -M manifest mode\n");
+        return -1;
+    }
+
     // collect input and output filepath
     std::vector<path_t> input0_files;
     std::vector<path_t> input1_files;
@@ -702,6 +774,60 @@ int main(int argc, char** argv)
                 return -1;
 
             const int count = filenames.size();
+
+            if (!manifestpath.empty())
+            {
+                std::vector<float> manifest;
+                if (parse_manifest(manifestpath, manifest) != 0)
+                    return -1;
+
+                const int numoutput = (int)manifest.size();
+                if (numoutput == 0)
+                {
+                    fprintf(stderr, "manifest is empty\n");
+                    return -1;
+                }
+
+                input0_files.resize(numoutput);
+                input1_files.resize(numoutput);
+                output_files.resize(numoutput);
+                timesteps.resize(numoutput);
+
+                for (int i=0; i<numoutput; i++)
+                {
+                    float v = manifest[i];
+                    float base = floorf(v);
+                    int sx = (int)base - 1;
+                    float fx = v - base;
+
+                    if (sx < 0 || sx >= count - 1)
+                    {
+                        fprintf(stderr, "manifest[%d]=%f references frame %d, valid range [1, %d]\n", i, v, sx + 1, count - 1);
+                        return -1;
+                    }
+                    if (fx <= 0.f || fx >= 1.f)
+                    {
+                        fprintf(stderr, "manifest[%d]=%f must have fractional part in (0, 1)\n", i, v);
+                        return -1;
+                    }
+
+#if _WIN32
+                    wchar_t tmp[256];
+                    swprintf(tmp, pattern.c_str(), i + 1);
+#else
+                    char tmp[256];
+                    sprintf(tmp, pattern.c_str(), i + 1);
+#endif
+                    path_t output_filename = path_t(tmp) + PATHSTR('.') + format;
+
+                    input0_files[i] = inputpath + PATHSTR('/') + filenames[sx];
+                    input1_files[i] = inputpath + PATHSTR('/') + filenames[sx + 1];
+                    output_files[i] = outputpath + PATHSTR('/') + output_filename;
+                    timesteps[i] = fx;
+                }
+            }
+            else
+            {
             if (numframe == 0)
                 numframe = count * 2;
 
@@ -748,6 +874,7 @@ int main(int argc, char** argv)
                 input1_files[i] = inputpath + PATHSTR('/') + filename1;
                 output_files[i] = outputpath + PATHSTR('/') + output_filename;
                 timesteps[i] = fx;
+            }
             }
         }
         else if (inputpath.empty() && !path_is_directory(input0path) && !path_is_directory(input1path) && !path_is_directory(outputpath))

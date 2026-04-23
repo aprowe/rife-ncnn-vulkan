@@ -422,6 +422,9 @@ class SaveThreadParams
 {
 public:
     int verbose;
+    int total;
+    int* counter;
+    ncnn::Mutex* counter_lock;
 };
 
 void* save(void* args)
@@ -439,6 +442,13 @@ void* save(void* args)
             break;
 
         int ret = encode_image(v.outpath, v.outimage);
+
+        int done;
+        stp->counter_lock->lock();
+        done = ++(*stp->counter);
+        stp->counter_lock->unlock();
+        fprintf(stderr, "progress %d/%d\n", done, stp->total);
+        fflush(stderr);
 
         // free input pixel data
         {
@@ -993,8 +1003,13 @@ int main(int argc, char** argv)
             }
 
             // save image
+            int save_counter = 0;
+            ncnn::Mutex save_counter_lock;
             SaveThreadParams stp;
             stp.verbose = verbose;
+            stp.total = (int)output_files.size();
+            stp.counter = &save_counter;
+            stp.counter_lock = &save_counter_lock;
 
             std::vector<ncnn::Thread*> save_threads(jobs_save);
             for (int i=0; i<jobs_save; i++)

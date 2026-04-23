@@ -8,7 +8,6 @@ on:
 env:
   VULKANSDK_VERSION: 1.4.309.0
   DEVELOPER_DIR: /Applications/Xcode_15.2.app/Contents/Developer
-  UseMultiToolTask: true
 
 concurrency:
   group: CI-${{ github.ref }}
@@ -20,11 +19,23 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v4
       with:
         submodules: 'recursive'
+    - name: cache-vulkansdk
+      id: cache-vulkansdk
+      uses: actions/cache@v4
+      with:
+        path: "VulkanSDK"
+        key: VulkanSDK-${{ env.VULKANSDK_VERSION }}-Installer
+    - name: vulkansdk
+      if: steps.cache-vulkansdk.outputs.cache-hit != 'true'
+      run: |
+        Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/${{ env.VULKANSDK_VERSION }}/windows/vulkansdk-windows-X64-${{ env.VULKANSDK_VERSION }}.exe?Human=true" -OutFile vulkansdk.exe
+        7z x -aoa ./vulkansdk.exe -oVulkanSDK
     - name: build
       run: |
+        $env:VULKAN_SDK="$(pwd)/VulkanSDK"
         mkdir build; cd build
         cmake -A x64 ../src
         cmake --build . --config Release -j 4
@@ -32,44 +43,29 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
-      with:
-        submodules: 'recursive'
-    - name: create-dummy-setup.py
-      run: |
-        cat << EOF > setup.py
-        from setuptools import setup, find_packages
-        from setuptools.dist import Distribution
-        class BinaryDistribution(Distribution):
-            def has_ext_modules(foo):
-                return True
-        setup(name='dummy', version='0.1', packages=find_packages(), distclass=BinaryDistribution)
-        EOF
-
-    - name: build
-      uses: pypa/cibuildwheel@v3.3.1
-      env:
-        CIBW_ARCHS_LINUX: "x86_64"
-        CIBW_BUILD: 'cp310-manylinux_x86_64'
-        CIBW_BUILD_VERBOSITY: 1
-        CIBW_REPAIR_WHEEL_COMMAND: ""
-        CIBW_BEFORE_ALL: cd /project/ &&
-          mkdir build && cd build &&
-          cmake -DCMAKE_INSTALL_PREFIX=/host/tmp/install ../src &&
-          cmake --build . -j $(nproc)
-      with:
-        output-dir: wheelhouse
-
-  macos:
-    runs-on: macos-13
-    steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v4
       with:
         submodules: 'recursive'
     - name: vulkansdk
       run: |
-        wget -q https://sdk.lunarg.com/sdk/download/${{ env.VULKANSDK_VERSION }}/mac/vulkansdk-macos-${{ env.VULKANSDK_VERSION }}.zip?Human=true -O vulkansdk-macos-${{ env.VULKANSDK_VERSION }}.zip
-        unzip -q vulkansdk-macos-${{ env.VULKANSDK_VERSION }}.zip
+        sudo apt-get update
+        sudo apt-get install -y libvulkan-dev glslang-tools spirv-tools
+    - name: build
+      run: |
+        mkdir build && cd build
+        cmake ../src
+        cmake --build . -j 4
+
+  macos:
+    runs-on: macos-13
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+    - name: vulkansdk
+      run: |
+        wget -q "https://sdk.lunarg.com/sdk/download/${{ env.VULKANSDK_VERSION }}/mac/vulkansdk-macos-${{ env.VULKANSDK_VERSION }}.zip?Human=true" -O vulkansdk.zip
+        unzip -q vulkansdk.zip
         sudo InstallVulkan-${{ env.VULKANSDK_VERSION }}.app/Contents/MacOS/InstallVulkan-${{ env.VULKANSDK_VERSION }} --root $GITHUB_WORKSPACE/${{ env.VULKANSDK_VERSION }} --accept-licenses --default-answer --confirm-command install
     - name: build-x86_64
       run: |

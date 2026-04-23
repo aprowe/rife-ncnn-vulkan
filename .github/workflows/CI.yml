@@ -31,7 +31,7 @@ jobs:
     - name: vulkansdk
       if: steps.cache-vulkansdk.outputs.cache-hit != 'true'
       run: |
-        Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/${{ env.VULKANSDK_VERSION }}/windows/vulkansdk-windows-X64-${{ env.VULKANSDK_VERSION }}.exe?Human=true" -OutFile vulkansdk.exe
+        Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/${{ env.VULKANSDK_VERSION }}/windows/VulkanSDK-${{ env.VULKANSDK_VERSION }}-Installer.exe?Human=true" -OutFile vulkansdk.exe
         7z x -aoa ./vulkansdk.exe -oVulkanSDK
     - name: build
       run: |

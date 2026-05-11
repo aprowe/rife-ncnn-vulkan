@@ -68,6 +68,6 @@ jobs:
       run: |
         export VULKAN_SDK=$(brew --prefix)
         mkdir build && cd build
-        cmake ../src -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+        cmake ../src -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
         cmake --build . -j 3
 

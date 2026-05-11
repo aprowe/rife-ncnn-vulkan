@@ -71,8 +71,13 @@ jobs:
     - name: vulkansdk-version
       id: sdk_version
       run: |
-        VERSION=$(curl -s "https://vulkan.lunarg.com/sdk/latest/mac.txt")
-        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        LATEST=$(curl -s "https://vulkan.lunarg.com/sdk/latest/mac.txt")
+        URL="https://sdk.lunarg.com/sdk/download/${LATEST}/mac/vulkansdk-macos-${LATEST}.dmg?Human=true"
+        if curl -s --head --fail "$URL" > /dev/null 2>&1; then
+          echo "VERSION=$LATEST" >> $GITHUB_OUTPUT
+        else
+          echo "VERSION=1.3.268.0" >> $GITHUB_OUTPUT
+        fi
     - name: cache-vulkansdk
       id: cache-vulkansdk
       uses: actions/cache@v4

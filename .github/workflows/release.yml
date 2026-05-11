@@ -87,7 +87,7 @@ jobs:
       run: |
         export VULKAN_SDK=$(pwd)/VulkanSDK/macOS
         mkdir build && cd build
-        cmake ../src
+        cmake ../src -DCMAKE_POLICY_VERSION_MINIMUM=3.5
         cmake --build . -j 3
     - name: package
       run: |

@@ -77,7 +77,7 @@ jobs:
     - name: vulkansdk
       if: steps.cache-vulkansdk.outputs.cache-hit != 'true'
       run: |
-        curl -L "https://sdk.lunarg.com/sdk/download/${{ env.VULKANSDK_VERSION }}/mac/vulkansdk-macos-${{ env.VULKANSDK_VERSION }}.dmg" -o vulkansdk.dmg
+        curl -L --fail "https://sdk.lunarg.com/sdk/download/${{ env.VULKANSDK_VERSION }}/mac/vulkansdk-macos-${{ env.VULKANSDK_VERSION }}.dmg?Human=true" -o vulkansdk.dmg
         hdiutil attach vulkansdk.dmg
         sudo /Volumes/VulkanSDK/InstallVulkan.app/Contents/MacOS/InstallVulkan \
           --root $(pwd)/VulkanSDK \

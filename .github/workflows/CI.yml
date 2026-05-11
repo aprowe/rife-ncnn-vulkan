@@ -56,3 +56,18 @@ jobs:
         cmake ../src
         cmake --build . -j 4
 
+  macos:
+    runs-on: macos-14
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+    - name: vulkansdk
+      run: brew install molten-vk vulkan-headers vulkan-loader
+    - name: build
+      run: |
+        export VULKAN_SDK=$(brew --prefix)
+        mkdir build && cd build
+        cmake ../src
+        cmake --build . -j 3
+

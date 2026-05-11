@@ -7,6 +7,7 @@ on:
 env:
   VULKANSDK_VERSION: 1.4.309.0
   APPLICATION_NAME: rife-ncnn-vulkan
+  DEVELOPER_DIR: /Applications/Xcode_15.2.app/Contents/Developer
 
 permissions:
   contents: write
@@ -58,6 +59,54 @@ jobs:
         name: ${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
 
+  macos:
+    needs: [setup]
+    runs-on: macos-14
+    env:
+      PACKAGENAME: ${{ needs.setup.outputs.APPNAME }}-${{ needs.setup.outputs.VERSION }}-macos
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+    - name: cache-vulkansdk
+      id: cache-vulkansdk
+      uses: actions/cache@v4
+      with:
+        path: "VulkanSDK"
+        key: VulkanSDK-${{ env.VULKANSDK_VERSION }}-mac
+    - name: vulkansdk
+      if: steps.cache-vulkansdk.outputs.cache-hit != 'true'
+      run: |
+        curl -L "https://sdk.lunarg.com/sdk/download/${{ env.VULKANSDK_VERSION }}/mac/vulkansdk-macos-${{ env.VULKANSDK_VERSION }}.dmg" -o vulkansdk.dmg
+        hdiutil attach vulkansdk.dmg
+        sudo /Volumes/VulkanSDK/InstallVulkan.app/Contents/MacOS/InstallVulkan \
+          --root $(pwd)/VulkanSDK \
+          --accept-licenses --default-answer --confirm-command install
+        hdiutil detach /Volumes/VulkanSDK
+    - name: build
+      run: |
+        export VULKAN_SDK=$(pwd)/VulkanSDK/macOS
+        mkdir build && cd build
+        cmake ../src
+        cmake --build . -j 3
+    - name: package
+      run: |
+        export VULKAN_SDK=$(pwd)/VulkanSDK/macOS
+        mkdir -p ${{ env.PACKAGENAME }}
+        cp README.md LICENSE ${{ env.PACKAGENAME }}
+        cp build/${{ needs.setup.outputs.APPNAME }} ${{ env.PACKAGENAME }}
+        strip ${{ env.PACKAGENAME }}/${{ needs.setup.outputs.APPNAME }}
+        cp $VULKAN_SDK/lib/libvulkan.1.dylib ${{ env.PACKAGENAME }}
+        cp $VULKAN_SDK/lib/libMoltenVK.dylib ${{ env.PACKAGENAME }}
+        install_name_tool -add_rpath @loader_path ${{ env.PACKAGENAME }}/${{ needs.setup.outputs.APPNAME }}
+        cp -r models/* ${{ env.PACKAGENAME }}
+        zip -9 -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
+    - name: upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.PACKAGENAME }}
+        path: ${{ env.PACKAGENAME }}.zip
+
   windows:
     needs: [setup]
     runs-on: windows-latest
@@ -100,7 +149,7 @@ jobs:
         path: ${{ env.PACKAGENAME }}.zip
 
   release:
-    needs: [setup, ubuntu, windows]
+    needs: [setup, ubuntu, macos, windows]
     runs-on: ubuntu-latest
     steps:
     - name: download
@@ -114,4 +163,5 @@ jobs:
         name: Release ${{ needs.setup.outputs.VERSION }}
         files: |
           artifacts/${{ needs.setup.outputs.APPNAME }}-${{ needs.setup.outputs.VERSION }}-ubuntu/${{ needs.setup.outputs.APPNAME }}-${{ needs.setup.outputs.VERSION }}-ubuntu.zip
+          artifacts/${{ needs.setup.outputs.APPNAME }}-${{ needs.setup.outputs.VERSION }}-macos/${{ needs.setup.outputs.APPNAME }}-${{ needs.setup.outputs.VERSION }}-macos.zip
           artifacts/${{ needs.setup.outputs.APPNAME }}-${{ needs.setup.outputs.VERSION }}-windows/${{ needs.setup.outputs.APPNAME }}-${{ needs.setup.outputs.VERSION }}-windows.zip

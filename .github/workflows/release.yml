@@ -59,78 +59,38 @@ jobs:
         name: ${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
 
-  macos-arm64:
-    needs: [setup]
-    runs-on: macos-14
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: 'recursive'
-    - name: vulkansdk
-      run: brew install molten-vk vulkan-headers vulkan-loader
-    - name: build
-      run: |
-        export VULKAN_SDK=$(brew --prefix)
-        mkdir build && cd build
-        cmake ../src -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_OSX_ARCHITECTURES=arm64
-        cmake --build . -j 3
-        strip ${{ needs.setup.outputs.APPNAME }}
-    - name: upload
-      uses: actions/upload-artifact@v4
-      with:
-        name: macos-arm64-bin
-        path: build/${{ needs.setup.outputs.APPNAME }}
-
-  macos-x86_64:
-    needs: [setup]
-    runs-on: macos-13
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: 'recursive'
-    - name: vulkansdk
-      run: brew install molten-vk vulkan-headers vulkan-loader
-    - name: build
-      run: |
-        export VULKAN_SDK=$(brew --prefix)
-        mkdir build && cd build
-        cmake ../src -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_OSX_ARCHITECTURES=x86_64
-        cmake --build . -j 3
-        strip ${{ needs.setup.outputs.APPNAME }}
-    - name: upload
-      uses: actions/upload-artifact@v4
-      with:
-        name: macos-x86_64-bin
-        path: build/${{ needs.setup.outputs.APPNAME }}
-
   macos:
-    needs: [setup, macos-arm64, macos-x86_64]
+    needs: [setup]
     runs-on: macos-14
     env:
       PACKAGENAME: ${{ needs.setup.outputs.APPNAME }}-${{ needs.setup.outputs.VERSION }}-macos
     steps:
     - uses: actions/checkout@v4
       with:
-        submodules: false
-    - name: download-arm64
-      uses: actions/download-artifact@v4
-      with:
-        name: macos-arm64-bin
-        path: arm64/
-    - name: download-x86_64
-      uses: actions/download-artifact@v4
-      with:
-        name: macos-x86_64-bin
-        path: x86_64/
+        submodules: 'recursive'
+    - name: vulkansdk
+      run: brew install molten-vk vulkan-headers vulkan-loader
+    - name: build
+      run: |
+        export VULKAN_SDK=$(brew --prefix)
+        mkdir build-arm64 && cd build-arm64
+        cmake ../src -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_OSX_ARCHITECTURES=arm64
+        cmake --build . -j 3
+        cd ..
+        mkdir build-x86_64 && cd build-x86_64
+        cmake ../src -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_OSX_ARCHITECTURES=x86_64
+        cmake --build . -j 3
+        cd ..
+        lipo -create \
+          build-arm64/${{ needs.setup.outputs.APPNAME }} \
+          build-x86_64/${{ needs.setup.outputs.APPNAME }} \
+          -output ${{ needs.setup.outputs.APPNAME }}
     - name: package
       run: |
         mkdir -p ${{ env.PACKAGENAME }}
         cp README.md LICENSE ${{ env.PACKAGENAME }}
-        chmod +x arm64/${{ needs.setup.outputs.APPNAME }} x86_64/${{ needs.setup.outputs.APPNAME }}
-        lipo -create \
-          arm64/${{ needs.setup.outputs.APPNAME }} \
-          x86_64/${{ needs.setup.outputs.APPNAME }} \
-          -output ${{ env.PACKAGENAME }}/${{ needs.setup.outputs.APPNAME }}
+        cp ${{ needs.setup.outputs.APPNAME }} ${{ env.PACKAGENAME }}
+        strip ${{ env.PACKAGENAME }}/${{ needs.setup.outputs.APPNAME }}
         cp -r models/* ${{ env.PACKAGENAME }}
         zip -9 -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
     - name: upload

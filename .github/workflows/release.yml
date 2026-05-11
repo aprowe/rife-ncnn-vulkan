@@ -86,15 +86,24 @@ jobs:
     - name: build
       run: |
         export VULKAN_SDK=$(pwd)/VulkanSDK/macOS
-        mkdir build && cd build
-        cmake ../src -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+        mkdir build-arm64 && cd build-arm64
+        cmake ../src -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_OSX_ARCHITECTURES=arm64
         cmake --build . -j 3
+        cd ..
+        mkdir build-x86_64 && cd build-x86_64
+        cmake ../src -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_OSX_ARCHITECTURES=x86_64
+        cmake --build . -j 3
+        cd ..
+        lipo -create \
+          build-arm64/${{ needs.setup.outputs.APPNAME }} \
+          build-x86_64/${{ needs.setup.outputs.APPNAME }} \
+          -output ${{ needs.setup.outputs.APPNAME }}
     - name: package
       run: |
         export VULKAN_SDK=$(pwd)/VulkanSDK/macOS
         mkdir -p ${{ env.PACKAGENAME }}
         cp README.md LICENSE ${{ env.PACKAGENAME }}
-        cp build/${{ needs.setup.outputs.APPNAME }} ${{ env.PACKAGENAME }}
+        cp ${{ needs.setup.outputs.APPNAME }} ${{ env.PACKAGENAME }}
         strip ${{ env.PACKAGENAME }}/${{ needs.setup.outputs.APPNAME }}
         cp $VULKAN_SDK/lib/libvulkan.1.dylib ${{ env.PACKAGENAME }}
         cp $VULKAN_SDK/lib/libMoltenVK.dylib ${{ env.PACKAGENAME }}
